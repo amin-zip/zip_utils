@@ -18,6 +18,11 @@ set -e
 #===============================================================================
 
 
+############ Set paths ############
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+FILES_DIR="${SCRIPT_DIR}"/docker_dev_files
+
+
 ############ Sanity check environment ############
 
 if [ -n "${REPO_PATH}" ]; then
@@ -143,9 +148,10 @@ EOF
 
 # Check if the host is running nvidia drivers.
 function with_nvidia() {
-    # This should be an adequate approximation. Just checking for the installation of the driver
-    # isn't sufficient because the Nvidia driver may be installed, but the adapter not enabled.
-    if [[ $(prime-select query) == "nvidia" ]]; then
+    # Use the presence of nvidia-smi as an indicator that we're running on an Nvidia system. This can cause
+    # things to break on systems with Nvidia cards, but where prime-select indicates that another adaptor
+    # is being used.
+    if [[ $(type -P nvidia-smi)  ]]; then
         return 0
     else 
         return 1
@@ -181,45 +187,36 @@ function maybe_build_user_image() {
     # If the image doesn't exist...
     if [[ $(docker images -q "$(user_image_tag)" 2> /dev/null) == "" ]]; then
         # This introduces new layers on top of the base image provided by CI and
-        # bakes in the user and group. We can also add layers for more dev tooling
-        # here.
-        # This really should be split out into a separate dockerfile and configured
-        # with build-arg, but this is convenient for prototyping.
+        # bakes in the user and group and some graphics libraries.
         print_info "User dev image not found. Building now."
-        docker build -t "$(user_image_tag)" -<<EOF
-FROM "$(base_image_tag)"
+        docker build \
+            --build-arg BASE_IMAGE="$(base_image_tag)" \
+            --build-arg USER="${USER}" \
+            --build-arg UID="${UID}" \
+            --build-arg GID="$(id --group)" \
+            -t "$(user_image_tag)" \
+            -f "${FILES_DIR}/dockerfile.base" \
+            "${FILES_DIR}"
 
-# Colorize the prompt.
-ENV TERM xterm-256color
+        # If there is a user-defined dockerfile, build a new image by appending that
+        # dockerfile on top of the user base.
+        if [ -f "${FILES_DIR}/dockerfile.user" ]; then
+            print_info "Custom dockerfile found. Creating custom image."
 
-# Bake user and group ID into the image.
-RUN groupadd --gid $(id --group) ${USER} && \
-    useradd -l --uid ${UID} --gid $(id --group) -m ${USER}
+            # Retag the image we just built as a base.
+            docker tag "$(user_image_tag)" "$(user_image_tag)"-base
 
-# Modify the prompt so the user knows when they're in a container.
-RUN echo "docker-dev" > /etc/debian_chroot
+            # Now build the user layer.
+            docker build --pull=false \
+                --build-arg BASE_IMAGE="$(user_image_tag)"-base \
+                -t "$(user_image_tag)" \
+                -f "${FILES_DIR}/dockerfile.user" \
+                "${FILES_DIR}"
 
-# Require no password for sudo access.
-# This exposes a big security threat: when a user is added to the docker group,
-# anyone with access to the machine can get root access to the filesystem through
-# docker!
-RUN echo "$USER ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-
-# Install additional graphics libraries.
-RUN apt update && apt install -y \
-    mesa-utils \
-    libgl1-mesa-glx \
-    libxcursor-dev \
-    libxrandr-dev \
-    libxi-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install common development tools.
-RUN apt update && apt install -y \
-    vim \
-    tmux \
-    && rm -rf /var/lib/apt/lists/*
-EOF
+            # Delete the intermediate layer. This should not affect the cache,
+            # but is just meant to make things less confusing to the user.
+            docker image rm "$(user_image_tag)"-base
+        fi
     fi
 }
 
