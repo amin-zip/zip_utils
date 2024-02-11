@@ -23,6 +23,10 @@ set -e
 # Should this have just been done with docker compose?
 #
 # ...probably.
+#
+# Should this also have been written in Python?
+#
+# Yuuuuuuup.
 #===============================================================================
 
 

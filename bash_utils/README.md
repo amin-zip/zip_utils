@@ -16,7 +16,7 @@ Follow directions for [setting up for Docker-based builds](https://flyzipline.at
 
 If running on a system with Nvidia graphics, ensure that Nvidia drivers are installed.
 `$ apt install nvidia-drivers-<xxx>` should suffice.
-If the system also has integrated graphics (our ThinkPads do), run `$ prime-select nvidia` to tell your system to prefer your Nvidia graphics card.
+If your system also has integrated graphics (our ThinkPads do), run `$ prime-select nvidia` to tell it to prefer your Nvidia graphics card.
 
 For convenience, add the _bash_utils_ folder to your path in _.bashrc_:
 
@@ -43,27 +43,30 @@ Changes to the container's filesystem will persist between sessions, but they do
 This means you can `apt install` or `pip install` packages in your container as desired without changing your host system.
 However, the _FlightSystems_ repository is mounted in by default, so any changes to this directory within the Docker container apply to your host filesystem.
 
+Note that the build cache is also mounted in, so swithing between building in Docker and building in your host filesystem may poison your cache.
+It's best to commit to just building within Docker or to mount a cache volume specific to Docker-based builds.
+
 Occasionally, the upstream Docker image will contain important changes we need, such as updated toolchains and sysroots.
 To pull in these changes and rebuild your development environment, run `$ docker_dev update`.
 
 ### Customizing docker_dev
 
 The provided Docker image contains a minimal set of packages for building and running our targets.
-Users may want to add their own customizations to the image to pull in their preferred development tools.
+You may want to add your own customizations to the image to pull in their preferred development tools.
 This can be done by copying _docker_dev_files/dockerfile.user.example_ to _docker_dev_files/dockerfile.user_ and modifying as appropriate.
 Changes to this file will apply to all future containers that `docker_dev` spins up.
 
-Users may also wish to mount in host directories or files or specify persistent environment variables that are not brought in by default. 
+You may also wish to mount in host directories or files (_.bashrc_ or a data directory, for example) or specify persistent environment variables that are not brought in by default.
 This can be done by copying _docker_dev_files/user_config.json.example_ to _docker_dev_files/user_config.json_ and modifying as appropriate.
 
-Changes to these files won't affect the container until the user runs `$ docker_dev delete` and spins up a new container.
+Changes to these files won't affect the container until you run `$ docker_dev delete` and spin up a new container.
 
 ### Using VS Code
 
 VS Code provides an excellent containerized development experience through the `Dev Containers` extension.
 
 To set up your system with a minimal `Dev Containers` configuration, run `$ docker_dev configure_code`.
-This will install the `Dev Containers` extension and a configuration specific to your system.
+This will install the `Dev Containers` extension and a configuration file specific to your system.
 
 Ensure that a container is running by executing `$ docker_dev start`.
 
