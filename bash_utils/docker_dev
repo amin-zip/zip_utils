@@ -19,6 +19,7 @@ set -e
 
 
 ############ Set paths ############
+
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FILES_DIR="${SCRIPT_DIR}"/docker_dev_files
 
@@ -39,31 +40,42 @@ if ! check_not_in_dockerenv; then
 fi
 
 
-############ Define variables ############
+############ Define common docker create args ############
 
 # Configure container with lenient default args for development. We really just want
 # filesystem isolation, so make everything privileged.
-docker_create_args=(
+
+# These arguments should be common among all developers. For arguments specific to one
+# machine, see user_config.json.example.
+
+docker_create_common_flags=(
     --privileged
     --user "$(id -u):$(id -g)"
-    -e DISPLAY="${DISPLAY}"
-    -e QT_X11_NO_MITSHM=1
-    -v "${HOME}"/.cache:"${HOME}"/.cache
-    -v "${HOME}"/data:"${HOME}"/data
-    -v "${HOME}"/.aws:"${HOME}"/.aws
-    -v "${HOME}"/.ssh:"${HOME}"/.ssh
-    -v /dev:/dev
-    -v /run:/run
-    -v /tmp/.X11-unix:/tmp/.X11-unix:rw
-    -v "${HOME}"/.Xauthority:/root/.Xauthority:ro
-    -v "${REPO_PATH}":"${REPO_PATH}"
-    -it
-    --device /dev/dri
     --workdir "${REPO_PATH}"
     --network host
+    -it
     --entrypoint /bin/bash
 )
 
+docker_create_common_mounts=(
+    -v "${HOME}"/.cache:"${HOME}"/.cache
+    -v "${HOME}"/.aws:"${HOME}"/.aws
+    -v "${HOME}"/.ssh:"${HOME}"/.ssh
+    -v "${HOME}"/.Xauthority:/root/.Xauthority:ro
+    -v "${REPO_PATH}":"${REPO_PATH}"
+    -v /dev:/dev
+    -v /run:/run
+    -v /tmp/.X11-unix:/tmp/.X11-unix:rw
+)
+
+docker_create_common_devices=(
+    --device /dev/dri
+)
+
+docker_create_common_env_vars=(
+    -e QT_X11_NO_MITSHM=1
+    -e DISPLAY="${DISPLAY}"
+)
 
 ############ Helper functions ############
 
@@ -80,6 +92,16 @@ Options:
   rebuild                           Pull the latest build image and rebuild.
 "
     exit 0
+}
+
+# Install specified apt packages if missing
+function maybe_apt_install() {
+    for package in "$@"; do
+        if ! dpkg -s "$package" > /dev/null 2>&1; then
+            print_info "Installing $package"
+            sudo apt install "$package" -y
+        fi
+    done
 }
 
 # Get the base image tag.
@@ -161,7 +183,7 @@ function with_nvidia() {
 # Set up Nvidia-specific things.
 function configure_nvidia() {
     # Specify that we should use the nvidia runtime.
-    docker_create_args+=(--runtime=nvidia)
+    docker_create_common_flags+=(--runtime=nvidia)
 
     # Also install the runtime if we don't have it.
     maybe_install_nvidia_runtime
@@ -207,7 +229,7 @@ function maybe_build_user_image() {
             docker tag "$(user_image_tag)" "$(user_image_tag)"-base
 
             # Now build the user layer.
-            docker build --pull=false \
+            docker build \
                 --build-arg BASE_IMAGE="$(user_image_tag)"-base \
                 -t "$(user_image_tag)" \
                 -f "${FILES_DIR}/dockerfile.user" \
@@ -220,11 +242,56 @@ function maybe_build_user_image() {
     fi
 }
 
+# Parse the user config file, if found.
+function parse_user_config () {
+    if [ -f "$FILES_DIR"/user_config.json ]; then
+        print_info "Loading user-specified docker arguments."
+    fi
+}
+
 # Create the container if needed.
 function maybe_create_dev_container() {
+    # If we can't find a running container...
     if [[ $(docker ps -a -q -f name="$(container_name)" 2> /dev/null) == "" ]]; then
-        print_info "No container found. Creating."
-        docker create "${docker_create_args[@]}" -it --name "$(container_name)" "$(user_image_tag)" > /dev/null
+        # Allow a user to specify additional arguments through the user_config.json file,
+        # if it exists.
+        CONFIG_FILE="$FILES_DIR"/user_config.json
+
+        if [ -f "$CONFIG_FILE" ]; then
+            maybe_apt_install jq
+
+            print_info "Loading user-specified docker arguments."
+
+            docker_create_user_mounts=$(
+                envsubst < "$CONFIG_FILE" | jq -r '.mounts | to_entries | .[] | "-v " + .key + ":" + .value'
+            )
+
+            docker_create_user_env_vars=$(
+                envsubst < "$CONFIG_FILE" | jq -r '.env_vars | to_entries | .[] | "-e " + .key + "=" + .value'
+            )
+
+            docker_create_user_devices=$(
+                envsubst < "$CONFIG_FILE" | jq -r '.devices | .[] | "--device " + .'
+            )
+
+            docker_create_user_flags=$(
+                envsubst < "$CONFIG_FILE" | jq -r '.additional_flags | .[]'
+            )
+        fi
+
+        docker_create_args=(
+            "${docker_create_common_mounts[@]}"
+            "${docker_create_common_devices[@]}"
+            "${docker_create_common_env_vars[@]}"
+            "${docker_create_common_flags[@]}"
+            "${docker_create_user_mounts}"
+            "${docker_create_user_env_vars}"
+            "${docker_create_user_devices}"
+            "${docker_create_user_flags}"
+        )
+
+        print_info "No container found. Creating"
+        docker create ${docker_create_args[@]} --name "$(container_name)" "$(user_image_tag)"
     fi
 }
 
@@ -232,8 +299,8 @@ function maybe_create_dev_container() {
 function start_container_and_enter() {
     # Start the container. No-op if already started.
     docker start "$(container_name)"
-    # Now execute an interactive bash process.
-    docker exec -it "$(container_name)" /bin/bash
+    # Now attach.
+    docker attach "$(container_name)"
 }
 
 
