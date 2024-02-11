@@ -57,3 +57,17 @@ Users may also wish to mount in host directories or files or specify persistent 
 This can be done by copying _docker_dev_files/user_config.json.example_ to _docker_dev_files/user_config.json_ and modifying as appropriate.
 
 Changes to these files won't affect the container until the user runs `$ docker_dev delete` and spins up a new container.
+
+### Using VS Code
+
+VS Code provides an excellent containerized development experience through the `Dev Containers` extension.
+
+To set up your system with a minimal `Dev Containers` configuration, run `$ docker_dev configure_code`.
+This will install the `Dev Containers` extension and a configuration specific to your system.
+
+Ensure that a container is running by executing `$ docker_dev start`.
+
+You should now be able to run VS Code, hit F1, and select `Dev Containers: Attach to Running Container`.
+This will install the necessary extensions into your container and allow you to work in the containerized environment.
+
+See [Full VSCode debug setup](https://flyzipline.atlassian.net/wiki/spaces/~712020aea05969e33d4dec8189900a4134040b/pages/3295412270/Full+VSCode+debug+setup+in+Docker) for very detailed instructions on setting up VS Code for containerized development.

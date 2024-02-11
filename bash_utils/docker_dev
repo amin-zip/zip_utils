@@ -93,10 +93,12 @@ function print_usage_and_exit() {
 Usage: docker_dev [options]
 
 Options:
-  run                (Default) Spin up/enter the development environment.
-  stop               Stop the running container.
-  delete             Delete the running container and user image.
-  update             Pull the latest build image and rebuild.
+  run                   (Default) Spin up and enter the development environment.
+  start                 Spin up a development environment, but don't enter the container.
+  stop                  Stop the running container.
+  delete                Delete the running container and user image.
+  update                Pull the latest image and rebuild.
+  configure_code        Configure VS Code for containerized development.
 "
     exit 0
 }
@@ -132,7 +134,7 @@ function container_name() {
 # Get the user image tag. This is the image we'll build on top of the base
 # image and tag specifically for the developer.
 function user_image_tag() {
-    echo "$(base_image_tag)-${USER}"
+    echo "$(base_image_tag)-${USER}" | jq -rR 'ascii_downcase'
 }
 
 # Run any missing configuration required on Nvidia systems.
@@ -302,13 +304,56 @@ function maybe_create_dev_container() {
     fi
 }
 
-# Start the container, then start a bash process within the container.
-function start_container_and_enter() {
+# Start the container.
+function start_container() {
     # Start the container. No-op if already started.
     docker start "$(container_name)"
-    # Now attach.
+}
+
+# Execute an interactive bash process within the container.
+function enter_container () {
     docker exec -it "$(container_name)" /bin/bash
 }
+
+# Install VS code extensions, if missing.
+function install_vs_code_extensions() {
+    for extension in "$@"; do
+        if code --list-extensions | grep -q "$extension"; then
+            print_info "Found VS Code extension: $extension"
+        else
+            print_info "Installing VS Code extension: $extension"
+            code --install-extension "$extension"
+        fi
+    done
+}
+
+function write_vs_code_container_config() {
+    # Create the config directory if it doesn't exist.
+    CONFIG_DIR="$HOME"/.config/Code/User/globalStorage/ms-vscode-remote.remote-containers/imageConfigs
+    mkdir -p "$CONFIG_DIR"
+
+    # Now figure out where the configuration should end up.
+    CONFIG_FILENAME=$(user_image_tag | jq -Rr '@uri | ascii_downcase')
+    TARGET_CONFIG="$CONFIG_DIR/$CONFIG_FILENAME.json"
+
+    SOURCE_CONFIG="$FILES_DIR"/code_container_config.json
+
+    sed "s|WORKSPACE_FOLDER|${REPO_PATH}|g" "$SOURCE_CONFIG" > "$TARGET_CONFIG"
+    print_info "Configuration written to $CONFIG_DIR/"
+}
+
+function configure_vs_code() {
+    if ! command -v code &> /dev/null; then
+        print_error "VS Code not found on path. Unable to configure."
+        exit 1
+    fi
+
+    install_vs_code_extensions ms-vscode-remote.remote-containers
+    write_vs_code_container_config
+}
+
+############ Install missing dependencies ############
+maybe_apt_install jq
 
 
 ############ Parsing and execution ############
@@ -325,7 +370,11 @@ while (($# > 0)); do
         run )
             # Default option. No special handling here.
             ;;
-        stop | delete | update)
+        configure_code )
+            configure_vs_code
+            exit 0
+            ;;
+        start | stop | delete | update)
             if [[ ${OPTION} != "run" ]]; then
                 print_error "Only one option is supported."
                 exit 2
@@ -339,7 +388,7 @@ while (($# > 0)); do
     shift
 done
 
-# Options requiring us to bring the container stop.
+# Options requiring us to stop the container.
 case "${OPTION}" in stop | delete | update)
     print_info "Killing development container."
     docker stop "$(container_name)" 2> /dev/null || true
@@ -360,7 +409,7 @@ case $OPTION in update)
 esac
 
 # Options requiring us to build/run a new container.
-case $OPTION in update| run )
+case $OPTION in start | update | run )
     # User just wants to attach to a container (that may or may not be created yet)
     # and do their thing.
     if with_nvidia; then
@@ -368,5 +417,10 @@ case $OPTION in update| run )
     fi
     maybe_build_user_image
     maybe_create_dev_container
-    start_container_and_enter
+    start_container
+esac
+
+# Options requiring us to enter the container.
+case $OPTION in run )
+    enter_container
 esac
