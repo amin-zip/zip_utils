@@ -62,7 +62,6 @@ fi
 # machine, see user_config.json.example.
 
 docker_create_common_flags=(
-    --privileged
     --user "$(id -u):$(id -g)"
     --workdir "${REPO_PATH}"
     --network=host
@@ -74,7 +73,7 @@ docker_create_common_mounts=(
     -v "${HOME}"/.cache:"${HOME}"/.cache
     -v "${HOME}"/.aws:"${HOME}"/.aws
     -v "${HOME}"/.ssh:"${HOME}"/.ssh
-    -v "${HOME}"/.Xauthority:/root/.Xauthority:ro
+    -v "${HOME}"/.Xauthority:/root/.Xauthority:rw
     -v "${REPO_PATH}":"${REPO_PATH}"
     -v /dev:/dev
     -v /run:/run
