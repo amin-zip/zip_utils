@@ -1,0 +1,6 @@
+#!/bin/bash
+set -e
+
+zml -z *.zml.0.zst flatten --fix -o log.zml && rm *.zml.*.zst
+[ -d video ] && mv video/*.h265 . && rm -rf video/
+rm -f "*upload*"

@@ -1,0 +1,76 @@
+#!/usr/bin/env python
+
+import re
+import sys
+import subprocess
+import click
+
+def get_unique_log_ids(bucket_root, droid):
+    print(f"Querying bucket for logs.")
+    proc = subprocess.Popen([
+        "aws", "s3", "ls",
+        f"s3://zipline-core-data-us-west-2-149938346436-production/droid_logs/asset_id=p2-droid-{droid}",
+        "--recursive",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE)
+
+    out, err = proc.communicate()
+
+    out = out.splitlines()
+    files = [line.split()[3].decode('utf-8') for line in out]
+
+    unique_logs = set()
+
+    for file in files:
+        m = re.search("^(.+)/raw/.*$", file)
+        if m:
+            unique_logs.add(m.group(1))
+
+    return unique_logs
+
+def parse_requested(unique_logs, requested_prefixes):
+    found_logs = set()
+
+    for log in unique_logs:
+        m = re.search(".*logs_id=(.{4}).*", log)
+        if m and m.group(1) in requested_prefixes:
+            found_logs.add(log)
+
+    return found_logs
+
+def download_logs(bucket_root, logs):
+    for log in logs:
+        uri = f"{bucket_root}{log}/raw"
+        local_dir = re.search(".*logs_id=(.*)$", log).group(1)
+        subprocess.run([
+            "aws", "s3", "sync",
+            uri,
+            local_dir,
+        ])
+
+def download_videos(bucket_root, logs):
+    for log in logs:
+        uri = f"{bucket_root}{log}/video"
+        local_dir = re.search(".*logs_id=(.*)$", log).group(1) + "/video"
+        print(f"aws s3 sync {uri} {local_dir}")
+        subprocess.run([
+            "aws", "s3", "sync",
+            uri,
+            local_dir,
+        ])
+
+
+@click.command()
+@click.option('--droid', '-d', required=True)
+@click.argument('logs', nargs=-1, required=True)
+def main(droid, logs):
+    bucket_root = f"s3://zipline-core-data-us-west-2-149938346436-production/"
+
+    unique_logs = get_unique_log_ids(bucket_root, droid)
+    found_logs = parse_requested(unique_logs, logs)
+    download_logs(bucket_root, found_logs)
+    download_videos(bucket_root, found_logs)
+
+if __name__ == "__main__":
+    main()

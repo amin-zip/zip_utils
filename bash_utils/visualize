@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+logfile=${1:-reprocessed.zml}
+
+WORKING_DIR=${PWD}
+
+pushd ${REPO_PATH} >> /dev/null
+
+# cargo run -p vio_visualizer --release -- \
+bazel run //FlightCode/perception/vision/vio_visualizer -- \
+    -i ${WORKING_DIR}/$logfile \
+    vio \
+    --use-only-stereo \
+
+popd >> /dev/null

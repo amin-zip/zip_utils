@@ -1,0 +1,33 @@
+#!/bin/bash
+set -e
+
+WORKING_DIR=${PWD}
+
+COMMANDS=""
+CALIBRATION=""
+
+if [ -f ${WORKING_DIR}/commands.json ]; then
+  COMMANDS="--commands ${WORKING_DIR}/commands.json "
+fi
+
+if [ -f ${WORKING_DIR}/calibration.json ]; then
+  CALIBRATION="--calibration ${WORKING_DIR}/calibration.json "
+fi
+
+
+pushd ${REPO_PATH} >> /dev/null
+export RUST_BACKTRACE=full
+
+#./build/host_linux/FlightCode/perception/vision/vio_reprocessor/vio_reprocessor \
+# cargo run -p vio_reprocessor --release -- \
+bazel run //FlightCode/perception/vision/vio_reprocessor:bin -- \
+    -i ${WORKING_DIR}/log.zml \
+    -o ${WORKING_DIR}/reprocessed.zml \
+    --use-only-stereo \
+    --frontend \
+    --backend \
+    ${COMMANDS} \
+    ${CALIBRATION} \
+    $@
+
+popd >> /dev/null

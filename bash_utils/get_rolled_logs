@@ -1,0 +1,97 @@
+#!/usr/bin/env python
+
+import re
+import os
+import sys
+import subprocess
+import click
+
+
+def ls(search_dir):
+    proc = subprocess.Popen([
+        "aws", "s3", "ls",
+        search_dir,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE)
+    out, err = proc.communicate()
+    out = out.splitlines()
+    return [line.split()[1].decode('utf-8') for line in out]
+
+
+def get_all_log_dirs(bucket_root, droid):
+    print(f"Querying bucket for logs.")
+
+    root_dir = f"s3://zipline-core-data-us-west-2-149938346436-production/droid_logs/asset_id=p2-droid-{droid}/"
+    
+    date_dirs = ls(root_dir)
+
+    aggregated_log_dirs = []
+    for date_dir in date_dirs:
+        date_dir = os.path.join(root_dir, date_dir)
+        log_dirs = ls(date_dir)
+        log_dirs_fq = [os.path.join(date_dir, log_dir) for log_dir in log_dirs]
+        aggregated_log_dirs.extend(log_dirs_fq)
+
+    return aggregated_log_dirs
+
+
+def get_directory_map(unique_logs, requested_substrings):
+    found_logs = dict()
+
+    for substring in requested_substrings:
+        matching_logs = [log for log in unique_logs if substring in log]
+        if matching_logs:
+            found_logs[substring] = matching_logs
+
+    return found_logs
+
+
+def download_logs(bucket_root, logs):
+    for (name, log_list) in logs.items():
+        try:
+            os.makedirs(name)
+        except:
+            pass
+
+        for log in log_list: 
+            uri = f"{log}raw"
+            local_dir = os.path.join(name, re.search(".*logs_id=(.*)$", log).group(1), "logs")
+            subprocess.run([
+                "aws", "s3", "sync",
+                uri,
+                local_dir,
+            ])
+
+
+def download_videos(bucket_root, logs):
+    for (name, log_list) in logs.items():
+        try:
+            os.makedirs(name)
+        except:
+            pass
+
+        for log in log_list: 
+            uri = f"{log}video"
+            local_dir = os.path.join(name, re.search(".*logs_id=(.*)$", log).group(1), "video")
+            subprocess.run([
+                "aws", "s3", "sync",
+                uri,
+                local_dir,
+            ])
+
+
+@click.command()
+@click.option('--droid', '-d', required=True)
+@click.argument('logs', nargs=-1, required=True)
+def main(droid, logs):
+    bucket_root = f"s3://zipline-core-data-us-west-2-149938346436-production/"
+
+    log_directories = get_all_log_dirs(bucket_root, droid)
+
+    found_logs = get_directory_map(log_directories, logs)
+    download_logs(bucket_root, found_logs)
+    download_videos(bucket_root, found_logs)
+
+if __name__ == "__main__":
+    main()

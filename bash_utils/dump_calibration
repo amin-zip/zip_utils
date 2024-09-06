@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+logfile=${1:-reprocessed.zml}
+
+WORKING_DIR=${PWD}
+
+pushd ${REPO_PATH} >> /dev/null
+
+cargo run -p sensor_information_publisher --example dump_vio_online_calibration -- \
+    -i ${WORKING_DIR}/$logfile \
+    -o ${WORKING_DIR}/calibration.json
+
+popd >> /dev/null

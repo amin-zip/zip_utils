@@ -43,7 +43,7 @@ if [ -n "${REPO_PATH}" ]; then
     source "${REPO_PATH}"/sim/utils/utils.sh
 else
     printf "ERROR: path to repository root is not defined.\n"
-    printf "ERROR: please execute: source <repo root>/docker_fun.sh\n"
+    printf "ERROR: please execute: source <repo root>/docker_setup.sh\n"
     exit 1
 fi
 
@@ -80,6 +80,7 @@ docker_create_common_mounts=(
     -v /run:/run
     -v /var/run/docker.sock:/var/run/docker.sock:rw
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw
+    -v "${HOME}"/.gitconfig:"${HOME}"/.gitconfig
 )
 
 docker_create_common_devices=(
@@ -89,7 +90,9 @@ docker_create_common_devices=(
 docker_create_common_env_vars=(
     -e QT_X11_NO_MITSHM=1
     -e DISPLAY="${DISPLAY}"
+    -e XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}"
     -e CARGO_HOME="${HOME}/.cargo"
+    -e GITHUB_TOKEN
 )
 
 ############ Helper functions ############
@@ -368,7 +371,7 @@ function configure_vs_code() {
         exit 1
     fi
 
-    install_vs_code_extensions ms-vscode-remote.remote-containers
+    install_vs_code_extensions ms-vscode-remote.remote-containers vadimcn.vscode-lldb rust-lang.rust-analyzer
     write_vs_code_container_config
 }
 

@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+WORKING_DIR=${PWD}
+
+pushd ${REPO_PATH} >> /dev/null
+
+cargo run -p vio_multilog_viewer --release -- \
+    -i ${WORKING_DIR}/reprocessed*.zml
+
+popd >> /dev/null

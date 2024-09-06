@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+logfile=${1:-log.zml}
+
+WORKING_DIR=${PWD}
+
+pushd ${REPO_PATH} >> /dev/null
+export RUST_BACKTRACE=1
+# cargo run -p hawkeye --release -- ${WORKING_DIR}/log.zml
+#./build/rust/release/hawkeye --timestamp-source force_mono ${WORKING_DIR}/log.zml
+./build/rust/release/hawkeye ${WORKING_DIR}/$logfile
+popd >> /dev/null
