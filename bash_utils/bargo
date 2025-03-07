@@ -1,0 +1,286 @@
+#! /bin/bash
+
+
+#*******************************************************************************
+# Copyright (c) 2025 Zipline International, Inc.  All rights reserved.
+#
+# bargo provides some conveniences for building and running bazel targets.
+#
+# To use bargo, source this file in your .bashrc.
+#
+# The main contribution is supporting package aliases: if a package has both
+# a Cargo.toml file and a BUILD.bazel file available, bargo will allow users to
+# reference the package by name rather than its fully qualified bazel path.
+#
+# For example:
+#   `bargo run vio_visualizer:bin <some_args>`
+# will resolve to:
+#   `bazel run //FlightCode/perception/vision/vio_visualizer:bin`
+#
+# bargo provides a convenience command, `bargo cd`, which will allow the
+# user to cd into a package directory by name.
+#
+# bargo also provides aliases for several common flags. For example,
+#  `bargo build --no-clippy vio`
+# will resolve to:
+#  `bazel build --output_groups=-clippy_checks //FlightCode/perception/vision/vio`
+#
+# bargo provides bash autocompletion for all targets and flags.
+#================================================================================
+
+
+# Path to cache file. We generate a package:path file once and continue to use it for lookups.
+BARGO_CACHE_PATH=${BARGO_CACHE_PATH:-"$HOME/.cache/bargo_cache"}
+
+# Generate a file that maps package names to their full paths.
+function _bargo_cache {
+    local CARGO_DIRS
+    # Find all directories containing a Cargo.toml, excluding the root.
+    CARGO_DIRS=$(find "$REPO_PATH" -name Cargo.toml -not -path "$REPO_PATH/Cargo.toml" | xargs dirname)
+    # Now filter down to just the directories with a BUILD.bazel file and make a key/value pair for each
+    # e.g: my_package /home/user/repo/subdir/my_package
+    find $CARGO_DIRS -maxdepth 1 -name BUILD.bazel | xargs dirname | sed 's:\(.*\)/\(.*\):\2 \1/\2:g' > "$BARGO_CACHE_PATH"
+}
+
+# If no cache exists, create one.
+function _maybe_bargo_cache {
+    if [[ ! -f "$BARGO_CACHE_PATH" ]]; then
+        _bargo_cache
+    fi
+}
+
+# Given a package name, get the full path to the package root.
+function _bargo_get_path {
+    # Allow for queries like "package/arbitrary/path/in/package" where $PACKAGE would be "package"
+    # and $SUB_DIR would be "arbitrary/path/in/package"
+    IFS='/' read -r PACKAGE SUB_DIR<<< "$1"
+
+    # If no arg, assume the user wanted the repo root.
+    if [[ -z "$PACKAGE" ]]; then
+        echo "$REPO_PATH"
+        return
+    fi
+
+    # Read the cache and return the entry for the specified package.
+    sed -n "s:^$PACKAGE \(.*\):\1/$SUB_DIR:p" "$BARGO_CACHE_PATH"
+}
+
+# List all subdirectories within a package.
+function _bargo_list_subdirectories {
+    local PACKAGE SUB_DIR PACKAGE_DIR
+
+    # Split query into package an subdirectory.
+    IFS='/' read -r PACKAGE SUB_DIR<<< "$1"
+
+    # Get the package directory
+    PACKAGE_DIR=$(_bargo_get_path "$PACKAGE")
+    find "$PACKAGE_DIR" -type d -printf "$PACKAGE/%P\n"
+}
+
+# List all supported packages.
+function _bargo_list_packages {
+    _maybe_bargo_cache
+    # Get all package names.
+    awk '{print $1}' "$BARGO_CACHE_PATH"
+}
+
+# List all supported packages appended with a /.
+function _bargo_list_packages_with_slash {
+    _maybe_bargo_cache
+    # Get all package names and append a /
+    awk '{out=$1; out=out"/"; print out}' "$BARGO_CACHE_PATH"
+}
+
+# List all bazel targets available under a specified package.
+function _bargo_list_targets_under_package {
+    # Grab the build file for the package and try to parse as many target names as possible.
+    local BUILD_FILE
+    BUILD_FILE=$(_bargo_get_path "$1")/BUILD.bazel
+
+    if [[ -f "$BUILD_FILE" ]]; then
+        # Nah, don't bazel query anything. Just straight-up search for 'name = "..."' because
+        # everything we're doing here is questionable anyway.
+        sed -n "s: *name = \"\(.*\)\",:\1:p" "$BUILD_FILE"
+    fi
+}
+
+# cd into the specified package's directory.
+function bargo_cd {
+    case $1 in
+        -c|--cache)
+            _bargo_cache
+            return
+            ;;
+        *)
+            PACKAGE=$1
+            ;;
+    esac
+
+    _maybe_bargo_cache
+    PACKAGE_PATH=$(_bargo_get_path "$PACKAGE")
+
+    if [[ -z "$PACKAGE_PATH" ]]; then
+         echo "Package $PACKAGE not found. Try running bargo_cd -c to rebuild the cache."
+    else
+         cd "$PACKAGE_PATH" || exit
+    fi
+}
+
+# Bash completion for bargo_cd.
+function _bargo_cd_complete {
+    _maybe_bargo_cache
+    local cur
+
+    _init_completion || return
+
+    if [[ $cur == */* ]]; then
+        COMPREPLY=($(compgen -W "$(_bargo_list_subdirectories "$cur")" -- "$cur"))
+    else
+        COMPREPLY=($(compgen -W "$(_bargo_list_packages_with_slash)" -- "$cur"))
+    fi
+}
+
+complete -o nospace -F _bargo_cd_complete bargo_cd
+
+# Given an input of the form package:target, resolve a full bazel path tothe target.
+function _bargo_resolve_target {
+    TARGET=$1
+
+    # Handle the easy cases.
+    if [[ "$TARGET" == @* || "$TARGET" == //* ]]; then
+        # The user fully specified the target. There's nothing to do.
+        echo "$TARGET"
+    else
+        # If specified as package:target, split into parts.
+        IFS=':' read -r PACKAGE TARGET <<< "$TARGET"
+
+        # Strip out path relative to root.
+        FULL_PACKAGE_PATH=$(_bargo_get_path "$PACKAGE")
+        RELATIVE_PACKAGE_PATH=$(realpath --relative-to "$REPO_PATH" "$FULL_PACKAGE_PATH")
+
+        # Now qualify the target.
+        if [[ -n "$TARGET" ]]; then
+            if [[ $TARGET == "..." ]]; then
+                TARGET="/..."
+            else
+                TARGET=":$TARGET"
+            fi
+        fi
+
+        # We have all the parts we need.
+        echo "//$RELATIVE_PACKAGE_PATH$TARGET"
+    fi
+}
+
+# Supported bargo commands.
+_supported_bargo_commands=(build run test cd)
+
+# Supported bargo flags.
+_supported_bargo_flags=(--no-clippy --perf --aarch64 --print)
+
+# Active bargo flags for the current invocation.
+_active_bargo_flags=()
+
+# Given a custom flag, resolve to bazel flag.
+function _bargo_parse_flag {
+    case $1 in
+        --no-clippy)
+            _active_bargo_flags+=("--output_groups=-clippy_checks")
+            ;;
+        --aarch64)
+            _active_bargo_flags+=("--config=compute_ziplinux_jetson_gcc")
+            ;;
+        --perf)
+            _active_bargo_flags+=("--run_under=perf record -F 1500 --call-graph dwarf --output $HOME/data/perf.data")
+            ;;
+    esac
+}
+
+# Entrypoint for all this nonsense.
+function bargo {
+    local ARG COMMAND BAZEL_TARGET PRINT_ONLY
+
+    PRINT_ONLY=false
+
+    # The first argument is always a command we'll forward to bazel.
+    COMMAND=$1
+
+    # I lied; there's one exception.
+    if [[ $COMMAND = "cd" ]]; then
+        bargo_cd "$2"
+        return
+    fi
+
+    # Reset active flags.
+    _active_bargo_flags=()
+
+    while shift; do
+        ARG=$1
+
+        # If parsing flags.
+        if [[ "$ARG" == -* ]]; then
+            if [[ "$ARG" == "--" ]]; then
+                # Anything after -- is meant for the target itself.
+                shift
+                break
+            elif [[ "$ARG" == "--print" ]]; then
+                # Special handling. The user wants to see the resolved command without actually
+                # running it.
+                PRINT_ONLY=true
+            elif [[ "${_supported_bargo_flags[*]}" =~ $ARG ]]; then
+                # This is a bargo-specific flag.
+                _bargo_parse_flag "$ARG"
+            else
+                # Assume this was meant for bazel.
+                _active_bargo_flags+=("$ARG")
+            fi
+        elif [[ -z $BAZEL_TARGET ]]; then
+            # We're not parsing a flag and we haven't hit --, so this must be our target.
+            BAZEL_TARGET=$(_bargo_resolve_target "$ARG")
+            if [[ -z $BAZEL_TARGET ]]; then
+                echo "Unable to find $BAZEL_TARGET. Try running bargo_cd -c."
+                exit 1
+            fi
+        else
+            # We have a command, flags, and a target. Everything else must be meant as arguments
+            # to the target itself.
+            break
+        fi
+    done
+
+    if [[ "$PRINT_ONLY" == true ]]; then
+        echo bazel "$COMMAND" "${_active_bargo_flags[@]}" "$BAZEL_TARGET" -- "$@"
+    else
+        bazel "$COMMAND" "${_active_bargo_flags[@]}" "$BAZEL_TARGET" -- "$@"
+    fi
+}
+
+# Bash completion for bargo.
+function _bargo_complete {
+    _maybe_bargo_cache
+
+    # Don't tokenize on :
+    _get_comp_words_by_ref -n : cur
+
+    if [[ $cur == -* ]]; then
+        # Parsing a flag. If bazel completion worked on my computer, I would concatenate here.
+        COMPREPLY=($(compgen -W "${_supported_bargo_flags[*]}" -- "$cur"))
+    elif [[ $cur == *:* ]]; then
+        # Some special handling if this looks like a package:target pattern.
+        IFS=':' read -r PACKAGE TARGET <<< "$cur"
+
+        COMPREPLY=($(compgen -W "$(_bargo_list_targets_under_package "$PACKAGE")" -- "$TARGET"))
+    else
+        # Two likely options. Either the user is lazy and wants the command completed, or they
+        # want the target completed. We can determine which by just looking at the word index.
+        if [[ $COMP_CWORD == 1 ]]; then
+            # Treat as a comamand
+            COMPREPLY=($(compgen -W "${_supported_bargo_commands[*]}" -- "$cur"))
+        else
+            # Treat as a target.
+            COMPREPLY=($(compgen -W "$(_bargo_list_packages)" -- "$cur"))
+        fi
+    fi
+}
+
+complete -o nospace -F _bargo_complete bargo
