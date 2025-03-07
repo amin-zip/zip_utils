@@ -43,7 +43,7 @@ if [ -n "${REPO_PATH}" ]; then
     source "${REPO_PATH}"/sim/utils/utils.sh
 else
     printf "ERROR: path to repository root is not defined.\n"
-    printf "ERROR: please execute: source <repo root>/docker_fun.sh\n"
+    printf "ERROR: please execute: source <repo root>/docker_setup.sh\n"
     exit 1
 fi
 
@@ -108,6 +108,16 @@ Options:
   configure_code        Configure VS Code for containerized development.
 "
     exit 0
+}
+
+# Check that $CONFIG_FILE is valid json, if it exists.
+function validate_user_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        if ! cat "$CONFIG_FILE" | jq -e .  > /dev/null 2>&1; then
+            print_error "$CONFIG_FILE contains invalid json. Unable to continue."
+            exit 4
+        fi
+    fi
 }
 
 # Install specified apt packages if missing
@@ -368,7 +378,7 @@ function configure_vs_code() {
         exit 1
     fi
 
-    install_vs_code_extensions ms-vscode-remote.remote-containers
+    install_vs_code_extensions ms-vscode-remote.remote-containers vadimcn.vscode-lldb rust-lang.rust-analyzer
     write_vs_code_container_config
 }
 
@@ -409,6 +419,8 @@ while (($# > 0)); do
     esac
     shift
 done
+
+validate_user_config
 
 # Options requiring us to stop the container.
 case "${OPTION}" in stop | delete | update)
