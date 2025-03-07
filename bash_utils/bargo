@@ -28,6 +28,13 @@
 # bargo provides bash autocompletion for all targets and flags.
 #================================================================================
 
+# We'll want some nice autocomplete features from bazel.
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+. $SCRIPT_DIR/bazel-complete.bash
+
+if [ -z "${REPO_PATH}" ]; then
+    echo "Error: REPO_PATH variable is not defined. bargo will not work."
+fi
 
 # Path to cache file. We generate a package:path file once and continue to use it for lookups.
 BARGO_CACHE_PATH=${BARGO_CACHE_PATH:-"$HOME/.cache/bargo_cache"}
@@ -98,8 +105,8 @@ function _bargo_list_targets_under_package {
     BUILD_FILE=$(_bargo_get_path "$1")/BUILD.bazel
 
     if [[ -f "$BUILD_FILE" ]]; then
-        # Nah, don't bazel query anything. Just straight-up search for 'name = "..."' because
-        # everything we're doing here is questionable anyway.
+        # We'll just straight-up search for 'name = "..."'
+        # We have bazel-complete handy, but it doesn't do anything much more interesting than this.
         sed -n "s: *name = \"\(.*\)\",:\1:p" "$BUILD_FILE"
     fi
 }
@@ -172,10 +179,10 @@ function _bargo_resolve_target {
     fi
 }
 
-# Supported bargo commands.
-_supported_bargo_commands=(build run test cd)
+# Supported bargo-specific commands.
+_supported_bargo_commands=(cd)
 
-# Supported bargo flags.
+# Supported bargo-specific flags.
 _supported_bargo_flags=(--no-clippy --perf --aarch64 --print)
 
 # Active bargo flags for the current invocation.
@@ -227,17 +234,33 @@ function bargo {
                 # Special handling. The user wants to see the resolved command without actually
                 # running it.
                 PRINT_ONLY=true
-            elif [[ "${_supported_bargo_flags[*]}" =~ $ARG ]]; then
+            elif [[ " ${_supported_bargo_flags[*]} " =~ " $ARG " ]]; then
                 # This is a bargo-specific flag.
                 _bargo_parse_flag "$ARG"
-            else
-                # Assume this was meant for bazel.
+            elif [[ "$ARG" == --*=* ]]; then
+                # This is a flag of type --flag=value, which we can forward directly as a single token.
                 _active_bargo_flags+=("$ARG")
+            else
+                # Two possible options. We either have a standalone bazel flag, or we have a key/value
+                # pair where the user didn't use an = sign. Determine which one this is by looking at
+                # supported bazel options. Of course, bazel also allows shorthand versions of these flags,
+                # which we unfortunately can't query, but we can brute-force the ones we use often.
+
+                # Push the arg no matter what
+                _active_bargo_flags+=("$ARG")
+
+                # Now see if we need to pop the next arg and push it.
+                BAZEL_OPTIONS=$(_bazel__options_for $COMMAND)
+                if _bazel__options_for "$COMMAND" | grep -q "${ARG:2}=" || [[ "$ARG" == "-c" ]]; then
+                    # Yup, pop it.
+                    _active_bargo_flags+=("$2")
+                    shift
+                fi
             fi
-        elif [[ -z $BAZEL_TARGET ]]; then
+        elif [[ -z "$BAZEL_TARGET" ]]; then
             # We're not parsing a flag and we haven't hit --, so this must be our target.
             BAZEL_TARGET=$(_bargo_resolve_target "$ARG")
-            if [[ -z $BAZEL_TARGET ]]; then
+            if [[ -z "$BAZEL_TARGET" ]]; then
                 echo "Unable to find $BAZEL_TARGET. Try running bargo_cd -c."
                 exit 1
             fi
@@ -257,14 +280,24 @@ function bargo {
 
 # Bash completion for bargo.
 function _bargo_complete {
+    local COMMAND DISPLACEMENT
+
     _maybe_bargo_cache
 
     # Don't tokenize on :
     _get_comp_words_by_ref -n : cur
 
     if [[ $cur == -* ]]; then
-        # Parsing a flag. If bazel completion worked on my computer, I would concatenate here.
-        COMPREPLY=($(compgen -W "${_supported_bargo_flags[*]}" -- "$cur"))
+        # Parsing a flag. Use bazel build flags and supported bargo flags.
+
+        # Grab a command if we can.
+        COMMAND=${COMP_WORDS[1]}
+
+        COMPREPLY=($(compgen -W "$(_bazel__options_for $COMMAND) ${_supported_bargo_flags[*]}" -- "$cur"))
+    elif [[ $cur == //* ]] || [[ $cur == @* ]]; then
+        # Probably best to let bazel handle this one.
+        DISPLACEMENT="$(_bazel__get_displacement ${REPO_PATH})"
+        _bazel__to_compreply "$(_bazel__complete_pattern "$REPO_PATH" "$DISPLACEMENT" "$cur" "label")"
     elif [[ $cur == *:* ]]; then
         # Some special handling if this looks like a package:target pattern.
         IFS=':' read -r PACKAGE TARGET <<< "$cur"
@@ -274,11 +307,16 @@ function _bargo_complete {
         # Two likely options. Either the user is lazy and wants the command completed, or they
         # want the target completed. We can determine which by just looking at the word index.
         if [[ $COMP_CWORD == 1 ]]; then
-            # Treat as a comamand
-            COMPREPLY=($(compgen -W "${_supported_bargo_commands[*]}" -- "$cur"))
+            # Treat as a command
+            COMPREPLY=($(compgen -W "$BAZEL_COMMAND_LIST  ${_supported_bargo_commands[*]}" -- "$cur"))
         else
-            # Treat as a target.
-            COMPREPLY=($(compgen -W "$(_bargo_list_packages)" -- "$cur"))
+            if [[ ${COMP_WORDS[1]} == "cd" ]]; then
+                # We have some fancy completion for bargo_cd. Use it here.
+                _bargo_cd_complete
+            else
+                # Treat as a target.
+                COMPREPLY=($(compgen -W "$(_bargo_list_packages)" -- "$cur"))
+            fi
         fi
     fi
 }
