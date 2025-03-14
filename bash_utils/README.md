@@ -5,7 +5,7 @@
 ### Overview
 `docker_dev` provides a development environment through Docker containers.
 
-This is similar to `docker_bash`, but containers are persistent and re-entrant, so the development experience resembles working in a virtual machine, but without the overhead of virtualization (on Linux systems).
+This is similar to `docker_bash`, but containers are persistent, so the development experience resembles working in a virtual machine, but without the overhead of virtualization (on Linux systems).
 
 This script adds a base layer on top of the upstream docker images used by `docker_do`, adding some conveniences into the filesystem and allowing users to optionally define their own layers and docker arguments.
 
@@ -43,9 +43,6 @@ Changes to the container's filesystem will persist between sessions, but they do
 This means you can `apt install` or `pip install` packages in your container as desired without changing your host system.
 However, the _FlightSystems_ repository is mounted in by default, so any changes to this directory within the Docker container apply to your host filesystem.
 
-Note that the build cache is also mounted in, so swithing between building in Docker and building in your host filesystem may poison your cache.
-It's best to commit to just building within Docker or to mount a cache volume specific to Docker-based builds.
-
 Occasionally, the upstream Docker image will contain important changes we need, such as updated toolchains and sysroots.
 To pull in these changes and rebuild your development environment, run `$ docker_dev update`.
 
@@ -82,8 +79,6 @@ See [Full VSCode debug setup](https://flyzipline.atlassian.net/wiki/spaces/~7120
 
 Add `no_cuda: "true"` to _docker_dev_files/user_config.json_.
 Run `docker_dev delete` for changes to take effect on the next instantiation of your dev container.
-
-Note that OpenGL applications won't work with the base _debian:slim_ without some modifications to the container.
 
 
 #### share my bazel cache with my container:

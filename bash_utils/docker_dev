@@ -10,23 +10,10 @@ set -e
 # similarly to docker_bash, but the container is persistent and therefore
 # reentrant.
 #
-# On Linux systems, docker uses no virtualization, so the only overhead cost of
-# working within this system should mostly come from the layered filesystem.
-# This concept should extend cleanly to MacOS (with some changes to support zsh and
-# different device paths), but will incur nontrivial cost from virtualization.
-#
 # This script adds a base layer on top of the upstream docker images used by
 # docker_do, adding some conveniences into the filesystem and allowing users to
 # optionally define their own layers (see dockerfule.user.example) and docker
 # arguments (see user_config.json.example).
-#
-# Should this have just been done with docker compose?
-#
-# ...probably.
-#
-# Should this also have been written in Python?
-#
-# Yuuuuuuup.
 #===============================================================================
 
 
