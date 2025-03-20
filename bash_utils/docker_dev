@@ -48,11 +48,15 @@ fi
 # These arguments should be common among all developers. For arguments specific to one
 # machine, see user_config.json.example.
 
+# Get shared memory size.
+shared_memory_size
+
 docker_create_common_flags=(
     --privileged
     --user "$(id -u):$(id -g)"
     --workdir "${REPO_PATH}"
     --network=host
+    --shm-size "${MEM_SIZE_G}g"
     -it
     --entrypoint /bin/bash
 )

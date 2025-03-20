@@ -177,7 +177,7 @@ function _bargo_resolve_target {
 }
 
 # Supported bargo-specific commands.
-_supported_bargo_commands=(cd cache)
+_supported_bargo_commands=(cd cache outputs)
 
 # Check that the specified command is supported.
 function _bargo_validate_command {
@@ -210,7 +210,7 @@ function _bargo_parse_flag {
 # Check if the specified command expects a bazel target.
 function _bargo_command_expects_target {
     case $1 in
-        build|run|test)
+        build|run|test|cquery)
             return 0
             ;;
         *) return 1
@@ -225,6 +225,9 @@ function bargo {
     # The first argument is always a command we'll forward to bazel.
     COMMAND=$1
 
+    # Reset active flags.
+    _active_bargo_flags=()
+
     if ! _bargo_validate_command $COMMAND; then
         echo "Invalid command: $COMMAND. Unable to proceed."
         return 1
@@ -237,10 +240,11 @@ function bargo {
     elif [[ $COMMAND = "cache" ]]; then
         _bargo_cache
         return
+    elif [[ $COMMAND = "outputs" ]]; then
+        # "outputs" is a command shortcut that we can conveniently intercept and correct here.
+        COMMAND="cquery"
+        _active_bargo_flags+=("--output=files")
     fi
-
-    # Reset active flags.
-    _active_bargo_flags=()
 
     while shift; do
         ARG=$1
@@ -287,7 +291,13 @@ function bargo {
                     return 1
                 fi
 
-                ARG_DELIMITER="--"
+                # If the next arg is not a delimiter, force one here.
+                if [[ ! $2 == "--" ]]; then
+                    ARG_DELIMITER="--"
+                fi
+
+                shift
+                break
             else
                 # We have a command, flags, and maybe a target. Everything else must be meant as arguments
                 # to the target itself.
