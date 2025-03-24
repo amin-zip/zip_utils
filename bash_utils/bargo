@@ -187,7 +187,7 @@ function _bargo_validate_command {
 }
 
 # Supported bargo-specific flags.
-_supported_bargo_flags=(--no-clippy --perf --aarch64 --print)
+_supported_bargo_flags=(--no-clippy --perf --aarch64 --print --fast --debug --opt)
 
 # Active bargo flags for the current invocation.
 _active_bargo_flags=()
@@ -203,6 +203,15 @@ function _bargo_parse_flag {
             ;;
         --perf)
             _active_bargo_flags+=("--run_under=perf record -F 1500 --call-graph dwarf --output $HOME/data/perf.data")
+            ;;
+        --fast)
+            _active_bargo_flags+=("--compilation_mode=fastbuild")
+            ;;
+	--debug)
+            _active_bargo_flags+=("--compilation_mode=dbg")
+            ;;
+	--opt)
+            _active_bargo_flags+=("--compilation_mode=opt")
             ;;
     esac
 }
