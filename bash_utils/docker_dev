@@ -52,7 +52,6 @@ fi
 shared_memory_size
 
 docker_create_common_flags=(
-    --privileged
     --user "$(id -u):$(id -g)"
     --workdir "${REPO_PATH}"
     --network=host
@@ -298,6 +297,10 @@ function maybe_create_dev_container() {
                 envsubst < "$CONFIG_FILE" | jq -r '.devices | .[] | "--device " + .'
             )
 
+            docker_create_user_caps=$(
+                envsubst < "$CONFIG_FILE" | jq -r '.caps | .[] | "--cap-add " + .'
+            )
+
             docker_create_user_flags=$(
                 envsubst < "$CONFIG_FILE" | jq -r '.additional_flags | .[]'
             )
@@ -311,6 +314,7 @@ function maybe_create_dev_container() {
             "${docker_create_user_mounts}"
             "${docker_create_user_env_vars}"
             "${docker_create_user_devices}"
+            "${docker_create_user_caps}"
             "${docker_create_user_flags}"
         )
 

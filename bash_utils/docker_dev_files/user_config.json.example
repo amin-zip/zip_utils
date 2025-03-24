@@ -9,6 +9,9 @@
     },
     "devices": [
     ],
+    "caps": [
+        "PERFMON"
+    ],
     "additional_flags": [
     ]
 }

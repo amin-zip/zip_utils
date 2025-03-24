@@ -105,3 +105,18 @@ If you want this package to exist in all future containers on your system, copy 
 If you want this package to exist for all users of `docker_dev`, modify _docker_dev_files/dockerfile.base_ and commit to the repository.
 
 Run `docker_dev delete` for changes to take effect on the next instantiation of your dev container.
+
+
+#### run perf
+perf requires that the `PERFMON` capability be applied to your container. Add the following to _docker_dev_files/user_config.json_ and delete/restart the container:
+
+
+```
+{
+    ...
+    "caps": [
+        "PERFMON"
+    ],
+    ...
+}
+```
