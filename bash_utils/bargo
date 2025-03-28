@@ -109,7 +109,7 @@ function _bargo_list_targets_under_package {
     if [[ -f "$BUILD_FILE" ]]; then
         # We'll just straight-up search for 'name = "..."'
         # We have bazel-complete handy, but it doesn't do anything much more interesting than this.
-        sed -n "s: *name = \"\(.*\)\",:\1:p" "$BUILD_FILE"
+        sed -n "s:.*name = \"\(.*\)\",:\1:p" "$BUILD_FILE"
     fi
 }
 
