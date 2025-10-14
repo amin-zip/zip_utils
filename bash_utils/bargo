@@ -176,8 +176,25 @@ function _bargo_resolve_target {
     fi
 }
 
+# The user just wants the manifest file path.
+function _bargo_manifest {
+    local TARGET=$(_bargo_resolve_target "$1")
+
+    pushd $REPO_PATH > /dev/null
+    local OUTPUT=$(bazel aquery "mnemonic('SourceSymlinkManifest', ${TARGET})" 2>/dev/null | grep "Outputs:")
+    popd > /dev/null
+
+    local PARSED=$(echo ${OUTPUT} | sed -E "s|Outputs: \[(.*)\]|\1|g")
+
+    if [[ -z $PARSED ]]; then
+        return 0;
+    else
+        echo "RUNFILES_MANIFEST_FILE=${REPO_PATH}/${PARSED}"
+    fi
+}
+
 # Supported bargo-specific commands.
-_supported_bargo_commands=(cd cache outputs)
+_supported_bargo_commands=(cd cache outputs manifest)
 
 # Check that the specified command is supported.
 function _bargo_validate_command {
@@ -187,7 +204,7 @@ function _bargo_validate_command {
 }
 
 # Supported bargo-specific flags.
-_supported_bargo_flags=(--no-clippy --perf --aarch64 --print --fast --debug --opt)
+_supported_bargo_flags=(--no-clippy --perf --aarch64 --cuda --print --fast --debug --opt)
 
 # Active bargo flags for the current invocation.
 _active_bargo_flags=()
@@ -200,6 +217,9 @@ function _bargo_parse_flag {
             ;;
         --aarch64)
             _active_bargo_flags+=("--config=compute_ziplinux_jetson_gcc")
+            ;;
+        --cuda)
+            _active_bargo_flags+=("--config=host_linux_cuda")
             ;;
         --perf)
             _active_bargo_flags+=("--run_under=perf record -F 1500 --call-graph dwarf --output $HOME/data/perf.data")
@@ -253,6 +273,10 @@ function bargo {
         # "outputs" is a command shortcut that we can conveniently intercept and correct here.
         COMMAND="cquery"
         _active_bargo_flags+=("--output=files")
+    elif [[ $COMMAND = "manifest" ]]; then
+        # "outputs" is a command shortcut that we can conveniently intercept and correct here.
+        _bargo_manifest "$2"
+	    return
     fi
 
     while shift; do
